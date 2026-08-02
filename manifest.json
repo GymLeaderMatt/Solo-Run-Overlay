@@ -1,0 +1,12 @@
+{
+  "id": "solo_run_overlay",
+  "name": "Solo Overlay",
+  "version": "1.0.2",
+  "entry": "main.lua",
+  "api": 2,
+  "profile": "content",
+  "category": "OTHER",
+  "affects_link": false,
+  "permissions": ["engine_internals"],
+  "description": "Overlay for solo runs. Gives you the information needed to make good decisions."
+}

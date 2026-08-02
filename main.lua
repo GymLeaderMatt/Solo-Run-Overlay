@@ -77,29 +77,33 @@ return function(mod)
     if not f then f = love.graphics.newFont(sizePx); C.fonts[sizePx] = f end
     return f
   end
-  -- Battle sprites: check for a mod-derived recolor/fix first (same path
-  -- Sprites now get colored the same way the real battle screen does --
-  -- PaletteFX.monPal(data, species) for the correct per-species palette
-  -- (respects per-species .palette overrides, e.g. Mewtwo -> PURPLEMON),
-  -- then the exact same recolor math BattleState.lua's getImage() uses:
-  -- bucket by red-channel brightness into 4 shades, preserve existing
-  -- alpha untouched. Same file, same known gap issue the real battle
-  -- screen already has -- this doesn't fix that, it just makes the
-  -- overlay consistent with what the real battle already shows instead
-  -- of staying grayscale.
+  -- Making sure battle sprites get colored the correct way and not be greyscale.
   local function getSprite(speciesId, dPoke)
-    if C.sprites[speciesId] ~= nil then return C.sprites[speciesId] or nil end
+    -- Cache key includes the color scheme so it can't get stuck wrong forever.
     local def = dPoke[speciesId]
+    local pal = C.PaletteFX and C.gameData and C.PaletteFX.monPal(C.gameData, speciesId)
+    local cacheKey = speciesId .. ":" .. ((def and def.trueColor) and "TC" or (pal and table.concat(
+      { pal[1][1],pal[1][2],pal[1][3], pal[2][1],pal[2][2],pal[2][3],
+        pal[3][1],pal[3][2],pal[3][3], pal[4][1],pal[4][2],pal[4][3] }, ",") or "?"))
+    if C.sprites[cacheKey] ~= nil then return C.sprites[cacheKey] or nil end
     local rel = def and def.spriteFront
     local img = false
     if rel then
-      local pal = C.PaletteFX and C.gameData and C.PaletteFX.monPal(C.gameData, speciesId)
-      if pal and love.image and love.image.newImageData then
+      if def.trueColor then
+        -- Same art the real battle screen shows: its own colors, no recolor.
+        local ok0, i0 = pcall(love.graphics.newImage, rel)
+        if ok0 then img = i0 end
+      elseif pal and love.image and love.image.newImageData then
         local ok, id = pcall(love.image.newImageData, rel)
         if ok and id then
           id:mapPixel(function(_, _, r, g, b, a)
             if a == 0 then return r, g, b, a end
-            local col = r > 0.83 and pal[1] or r > 0.5 and pal[2] or r > 0.17 and pal[3] or pal[4]
+            -- Luminance, not just red -- true for all 4 vanilla grayscale
+            -- shades (r=g=b, so this gives the same answer as before), and
+            -- also correct for a real-color sprite, where red alone isn't
+            -- a reliable stand-in for brightness.
+            local lum = 0.299*r + 0.587*g + 0.114*b
+            local col = lum > 0.83 and pal[1] or lum > 0.5 and pal[2] or lum > 0.17 and pal[3] or pal[4]
             return col[1] / 255, col[2] / 255, col[3] / 255, a
           end)
           local okImg, i = pcall(love.graphics.newImage, id)
@@ -107,17 +111,15 @@ return function(mod)
         end
       end
       if not img then
-        -- fallback: plain grayscale load if palette lookup/recolor failed for any reason
+        -- fallback: just load it plain if coloring fails
         local ok2, i2 = pcall(love.graphics.newImage, rel)
         if ok2 then img = i2 end
       end
     end
-    C.sprites[speciesId] = img
+    C.sprites[cacheKey] = img
     return img or nil
   end
-  -- General cached loader for the mod's own shipped UI art (backpack icon,
-  -- badge images) -- separate from getSprite, which is specifically for
-  -- ROM-derived species sprites read from the game's own decoded assets.
+  -- Separate cache for this mod's own icons (badges, bag icons).
   C.uiImages = C.uiImages or {}
   local function uiImage(path)
     if C.uiImages[path] ~= nil then return C.uiImages[path] or nil end
@@ -127,8 +129,7 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- STATE: read game.save into a small table we can draw (ported/trimmed
-  -- from the streaming snapshot; no JSON, keeps species ids for sprites).
+  -- Reads the save data into something easy to draw.
   -- ---------------------------------------------------------------------
   local function currentBattle()
     local g = C.game; local stk = g and g.stack
@@ -171,12 +172,7 @@ return function(mod)
     local activeMon = battle and battle.player and battle.player.mon or nil
     local teamTypes = {}
 
-    -- Real badge->stat mapping (matches Damage.BADGE_BOOSTS exactly).
-    -- Used to show the single, correct badge boost on the stat display --
-    -- NOT the reapplication glitch (that's badge_boost_glitch's job, and
-    -- it operates on the battle's own curStats independently of this
-    -- overlay, which always computes its own clean, single-application
-    -- reference value here).
+    -- Which stat each badge boosts.
     local BADGE_STAT_MAP = {
       BOULDERBADGE = "attack", THUNDERBADGE = "defense",
       SOULBADGE = "speed", VOLCANOBADGE = "special",
@@ -299,10 +295,7 @@ return function(mod)
       if battleBlock.enemy and matchup and matchup.enemyMoves then
         battleBlock.enemy.moves = matchup.enemyMoves
       end
-      -- Live stat stages, straight from the real battler objects (not the
-      -- mon itself -- stages live on battle.player/battle.enemy, separate
-      -- from curStats, and reset to {} at battle end since they're only
-      -- ever read here while a battle exists).
+      -- Stat stage changes read straight from the battle itself.
       if battleBlock.enemy and battle.enemy then
         battleBlock.enemy.stages = battle.enemy.stages
         battleBlock.enemy.confusedTurns = battle.enemy.confusedTurns
@@ -321,9 +314,7 @@ return function(mod)
       end
     end
 
-    -- Fold the lead's move effectiveness directly onto its own move list
-    -- (moved out of the battle-only panel per plan item 3/3b -- moves
-    -- always show type+power+pp; mult/stab/best only populate in battle).
+    -- Adds move effectiveness info to the lead Pokemon's own move list.
     if battleBlock and battleBlock.matchup and battleBlock.matchup.myMoves
        and party[1] and party[1].moves then
       for i, mv in ipairs(party[1].moves) do
@@ -339,7 +330,7 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- Per-frame: throttled save read + HP animation easing
+  -- Runs every frame: reads the save and animates HP bars.
   -- ---------------------------------------------------------------------
   local function easeHP(key, target, dt)
     local cur = C.dispHP[key]
@@ -358,7 +349,7 @@ return function(mod)
       if ok then C.state = st
       elseif st ~= C.buildErr then C.buildErr = st; mod.log:error("kanto_ingame build: %s", tostring(st)) end
     end
-    -- advance HP eases toward the freshest values every frame
+    -- smoothly animate HP toward the real value
     local st = C.state
     if st then
       for i = 1, 6 do
@@ -378,12 +369,10 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- Draw helpers (all inputs in DESIGN units; multiplied by C.s)
+  -- Drawing helpers (sizes scale automatically to fit the screen).
   -- ---------------------------------------------------------------------
   local s = 1
-  -- LÖVE's built-in Vera font lacks these glyphs (they'd draw a missing-glyph
-  -- box), so swap them for safe equivalents before printing. ♀/♂ come straight
-  -- from Nidoran's name; the rest are battle-panel decorations.
+  -- Swaps symbols the game's font can't display for simple text instead.
   local SUB = {
     ["\226\153\128"] = " (F)",  -- ♀ U+2640
     ["\226\153\130"] = " (M)",  -- ♂ U+2642
@@ -413,10 +402,7 @@ return function(mod)
     love.graphics.print(str, math.floor(X), math.floor(y*s))
   end
   local function textW(str, size) return getFont(size*s):getWidth(str) / s end
-  -- LÖVE's built-in font has no bold weight to switch to, so bold is faked
-  -- by drawing the string twice, offset by ~1px -- a standard cheap trick.
-  -- Same alignment math as txt() runs independently for each draw, so it
-  -- works correctly with align="center"/"right" too.
+  -- Fakes bold by drawing the text twice, slightly offset.
   local function boldTxt(str, x, y, size, col, align, a)
     txt(str, x, y, size, col, align, a)
     txt(str, x + 1, y, size, col, align, a)
@@ -445,11 +431,7 @@ return function(mod)
     txt(label, x + 6, y + 3, 14, COL.text)
     return w + 5
   end
-  -- Status condition + confusion badges, shown next to the Pokemon's name
-  -- (works for both the player's panel and the enemy panel). Confusion is
-  -- deliberately separate from STATUS_BADGE -- it's tracked independently
-  -- by the engine (confusedTurns lives on the battler, not mon.status) and
-  -- can be shown at the same time as a real status condition.
+  -- Status and confusion badges shown next to a Pokemon's name.
   local STATUS_BADGE = {
     SLP = { text = "ZZZ", bg = hex("6fc3ff"), fg = {0.05, 0.05, 0.05} },
     PAR = { text = "PAR", bg = hex("ffd83d"), fg = {0.08, 0.07, 0.05} },
@@ -479,20 +461,17 @@ return function(mod)
   local function effText(m) return EFFLBL[m] or ("×"..(m/10)) end
 
   -- ---------------------------------------------------------------------
-  -- Panel renderers. Each returns the height it drew (design units).
+  -- Draws each panel. Each one returns how tall it drew.
   -- ---------------------------------------------------------------------
-  local COLW = 468        -- side column width (design units)
+  local COLW = 468        -- side column width
   local PAD = 16
 
-  -- Party rows are BOXLESS (thin dividers between mons). Two styles toggled
-  -- with F7: 1 = full (types, HP, XP, moves), 2 = compact (no moves, tighter).
+  -- Party row style: F7 toggles full (types, HP, XP, moves) vs compact.
   local function moveRows(m) return 4 end
   local function measureMon(m, style)
     if style == 2 then return 54 end
     local hasXP = m.xpProgress ~= nil
-    -- Sprite block (84, whichever is taller: sprite or the types/HP-bar/
-    -- HP-number stack) + 10 gap + growth-rate line (20) + XP bar/label (34)
-    -- + move rows (26 each, single column, full width).
+    -- Figures out how tall this Pokemon's box needs to be.
     local bodyH = 84 + 10 + (m.growthRate and 20 or 0) + (hasXP and 34 or 0) + 6 + moveRows(m)*26
     return math.max(76, bodyH)
   end
@@ -503,8 +482,7 @@ return function(mod)
     local frac = math.max(0, math.min(1, dispHp / (m.maxhp or 1)))
 
     if style == 2 then
-      -- COMPACT: unchanged, still side-by-side sprite + text (out of scope
-      -- for this pass -- only the FULL style below is being reworked).
+      -- Compact style: sprite next to text.
       local sp, bodyX = 52, 66
       local bodyW = w - bodyX
       local img = getSprite(m.species, C.dPoke)
@@ -529,9 +507,7 @@ return function(mod)
       return rowH
     end
 
-    -- FULL: sprite pinned to the left, spanning the types / HP-bar /
-    -- HP-number block (exactly the layout given). Growth rate, XP bar, and
-    -- XP-to-next-level run full width below, once past the sprite's bottom.
+    -- Full style: sprite on the left, everything else stacked next to it.
     local cy = y
     local sp = 84
     local bodyX = sp + 14
@@ -563,13 +539,7 @@ return function(mod)
       txt(lbl, x, cy, 17, COL.text); cy = cy + 22
     end
     cy = cy + 6
-    -- Moves: single column, full width -- each carries type + power always,
-    -- plus effectiveness (color-coded, "best move" highlight) once buildState
-    -- has folded in a live battle matchup (see buildState below).
-    -- Always 4 rows, real or placeholder -- this is what makes the panel's
-    -- height fixed (moveRows() above always returns 4), which is what lets
-    -- the Stats panel below be safely bottom-anchored without ever
-    -- overlapping a Pokemon that only knows 1-2 moves.
+    -- Always shows 4 move rows so the panel height never changes.
     local mf = 17
     for i = 1, 4 do
       local mv = m.moves and m.moves[i]
@@ -593,10 +563,8 @@ return function(mod)
     return rowH
   end
 
-  -- test_overlay_1: shows only the lead Pokemon (slot 1), not the whole
-  -- party. Header is that Pokemon's own name -- no "Active Party" title,
-  -- no "A / 1/6" style+count indicator (both removed, not just hidden).
-  local PARTY_HEADER_H = 44   -- extra room below the name so types/sprite can breathe
+  -- Only shows your lead Pokemon, not the whole party.
+  local PARTY_HEADER_H = 44
   local function partyPanelHeight(m, style)
     return PAD + PARTY_HEADER_H + measureMon(m, style) + (PAD - 6)
   end
@@ -616,17 +584,13 @@ return function(mod)
     return h
   end
 
-  -- Stats panel: 6 mini boxes (HP/ATK/DEF top row, SPC/SPD/CRIT bottom),
-  -- colored per-stat so they read at a glance. Crit uses the species' BASE
-  -- speed stat (not the leveled/calculated one) per the real Gen 1 formula:
-  -- floor(baseSpeed / 2) / 256, which is the same ratio as baseSpeed / 512.
+  -- 6 stat boxes. Crit chance uses the Pokemon's base speed stat.
   local STAT_COL = {
     HP = hex("ff8a3d"), ATK = hex("ffd83d"), DEF = hex("6fe89a"),
     SPC = hex("6fc3ff"), SPD = hex("b48bff"), CRIT = hex("ff7fc0"),
   }
   local STAT_DARK = {0.08, 0.07, 0.09}
-  -- White corner square with the raw stage number, green if boosted, red
-  -- if dropped. Only drawn when the stage is actually non-zero/non-nil.
+  -- Small badge showing a stat boost/drop, only if one is active.
   local function stageBadge(x, y, w, h, stage)
     if not stage or stage == 0 then return end
     local bw, bh = 32, 26
@@ -645,8 +609,7 @@ return function(mod)
     boldTxt(value, x + w/2, y + 36, vsz, STAT_DARK, "center")
     stageBadge(x, y, w, h, stage)
     if badgeIndex then
-      -- The actual badge responsible for this boost, small, top-left --
-      -- not a generic marker, the real art you already provided.
+      -- Shows which badge is boosting this stat.
       local img = uiImage(mod.assets:path("assets/badges/badge" .. badgeIndex .. "_true.png"))
       if img then
         local iw, ih = img:getDimensions()
@@ -657,9 +620,7 @@ return function(mod)
       end
     end
   end
-  -- Constant height (PAD + 2 box rows + gap + PAD) -- always drawn, even with
-  -- "--" fallback values, so this can be safely bottom-anchored in
-  -- drawOverlay without ever needing to know the panel's height in advance.
+  -- Fixed height so this panel can always be anchored to the bottom.
   local STATS_BOX_H = 84
   local STATS_GAP = 12
   local STATS_PANEL_H = PAD + STATS_BOX_H*2 + STATS_GAP + PAD
@@ -668,7 +629,7 @@ return function(mod)
     local stats = m and m.stats or {}
     local stages = (m and m.stages) or {}
     local badgeStat = (m and m.badgeStat) or {}
-    local live = m and m.liveStats   -- battle.player/enemy.curStats -- real-time, reflects badge_boost_glitch if installed
+    local live = m and m.liveStats   -- real, live stats during battle
     local statusPenalty = m and m.status and C.Status and C.Status.RECORDS
       and C.Status.RECORDS[m.status] and C.Status.RECORDS[m.status].statPenalty
     local w = COLW; local gap = STATS_GAP
@@ -678,13 +639,7 @@ return function(mod)
     local by = y + PAD
     local critPct = m and m.baseSpeed and (m.baseSpeed / 512 * 100) or nil
     local critStr = critPct and (string.format("%.2f", critPct) .. "%") or "--"
-    -- If a live in-battle value exists, show that directly -- it's the
-    -- actual number Damage.lua itself uses, and if badge_boost_glitch is
-    -- installed, that live value already reflects its real-time
-    -- compounding, no separate glitch logic needed here. Only when there's
-    -- no live value (outside battle) do we compute our own static
-    -- reference: stage, then badge boost, then burn/paralysis penalty,
-    -- matching Damage.lua's order exactly.
+    -- Uses the real battle stat if there is one; otherwise calculates it.
     local function adjusted(base, key)
       if live and live[key] ~= nil then return live[key] end
       if base == nil then return nil end
@@ -725,11 +680,7 @@ return function(mod)
     return statsPanelFor(x, y, st.battle and st.battle.enemy)
   end
 
-  -- Status panel: no header, two mini boxes side by side (Play Time in
-  -- H:M:S, and a blank manually-filled Resets box), plus a third Repel
-  -- box that only appears while a repel is actually active -- so it
-  -- doesn't grow/shrink the layout on every other frame, only when a
-  -- repel starts or runs out.
+  -- Play time and resets, plus a repel box that only shows up while active.
   local function statBoxPlain(x, y, w, h, label, value)
     panel(x, y, w, h, false)
     boldTxt(label, x + w/2, y + 10, 14, COL.text, "center")
@@ -737,10 +688,7 @@ return function(mod)
     while textW(value, vsz) > w - 20 and vsz > 18 do vsz = vsz - 1 end
     boldTxt(value, x + w/2, y + 30, vsz, COL.text, "center")
   end
-  -- Badge grid: 8 slots, 2 rows of 4, square cells sized from the panel's
-  -- own (now ~20% smaller than the main column) width so they actually
-  -- fit well. Every cell gets a thin 2px outline; the image (true =
-  -- colored/owned, false = outline/unowned) draws on top.
+  -- 8 badge slots in a grid, filled in once earned.
   local BADGE_ROWS, BADGE_COLS = 2, 4
   local BADGE_GAP = 8
   local BADGE_PANEL_W = COLW * 0.72
@@ -771,13 +719,8 @@ return function(mod)
     return BADGE_PANEL_H
   end
 
-  -- Bottom-right stack, built bottom-up: Game Time/Resets is the fixed
-  -- floor (renamed from "Play Time" per request), bag fullness sits above
-  -- it with a conditional Repel box beside it (only while one's active),
-  -- badges above that, and the enemy panel + enemy stats (variable
-  -- presence, appear/disappear with battle) stack directly above the
-  -- badge box -- so nothing fixed ever moves when a battle starts or ends.
-  local GT_BOX_H = 78   -- shrunk to fit the label+value snugly, no dead space
+  -- Bottom-right layout, built from the bottom up so nothing shifts around.
+  local GT_BOX_H = 78
   local function gameTimePanel(st, x, y)
     local t = st.trainer
     local w = COLW; local gap = 16
@@ -787,7 +730,7 @@ return function(mod)
     return GT_BOX_H
   end
 
-  -- Repel and bag warnings share the row beneath the badge panel.
+  -- Repel and bag warnings.
   local REPEL_BOX_W = BADGE_PANEL_W * 0.42
   local function repelPanel(st, x, y)
     local t = st.trainer
@@ -821,16 +764,9 @@ return function(mod)
     return BAG_BOX_SIZE
   end
 
-  -- Battle panel
-  -- Enemy panel: deliberately mirrors party()+drawMonRow()'s FULL layout --
-  -- same header convention, same block order, same fixed-4-move-slot
-  -- convention -- except the sprite sits on the RIGHT edge instead of the
-  -- left ("inverse"), so the two Pokemon visually face each other across
-  -- the two columns. No title/kind text, no catch odds, no threats
-  -- section (superseded now that every enemy move shows its own
-  -- effectiveness directly, same as the player's own move list).
-  local ENEMY_HEADER_H = 36   -- tightened from 44 -- less dead space below the name
-  local ENEMY_ROW_H = 90 + 20 + 4*26   -- sprite-block-to-speed-line + gap-to-moves + 4 fixed move rows
+  -- Enemy panel: mirrors the player's panel, sprite on the right instead.
+  local ENEMY_HEADER_H = 36
+  local ENEMY_ROW_H = 90 + 20 + 4*26
   local ENEMY_PANEL_H = PAD + ENEMY_HEADER_H + ENEMY_ROW_H + (PAD - 6)
   local function enemyPanel(st, x, y)
     local b = st.battle; if not b then return 0 end
@@ -857,8 +793,7 @@ return function(mod)
     if img then
       local iw, ih = img:getDimensions(); local sc = (sp / math.max(iw, ih)) * s
       setc(COL.text, eh <= 0 and 0.5 or 1)
-      -- Right-aligned, NOT flipped -- inverse of the player's panel, so the
-      -- two sprites read as facing each other across the two columns.
+      -- Sprite faces the other way so the two Pokemon look at each other.
       love.graphics.draw(img, math.floor((x + w - sp)*s), math.floor(blockTop*s), 0, sc, sc)
     end
 
@@ -899,7 +834,7 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- Compose: draw everything, anchored to the window edges (widescreen).
+  -- Draws everything, positioned from the screen edges.
   -- ---------------------------------------------------------------------
   C.drawOverlay = function()
     local st = C.state
@@ -908,14 +843,13 @@ return function(mod)
     s = H / REF_H
     love.graphics.push("all")
     love.graphics.origin()
-    local leftMargin = 8   -- unified with rightMargin below -- true left/right symmetry
+    local leftMargin = 8
     local bottomMargin = 40
-    local rightMargin = 8   -- distance from the TRUE right screen edge -- small pushes the block right, away from center/battle graphics
+    local rightMargin = 8
     local gap = 16
-    local badgeY = 24   -- top-anchor for Badges (unchanged position, per request)
+    local badgeY = 24
 
-    -- Game Time and Resets are permanently visible whenever a save is active.
-    -- The overlay toggle controls every other widget below.
+    -- Game time and resets always show; everything else toggles with O/F8.
     local gtY = (H / s) - bottomMargin - GT_BOX_H
     gameTimePanel(st, leftMargin, gtY)
     if not C.visible or not (st.party and #st.party > 0) then
@@ -923,17 +857,14 @@ return function(mod)
       return
     end
 
-    -- LEFT: My Stats sits above Game Time/Resets; My Pokemon sits above it.
+    -- Left side: my Pokemon, then my stats, then game time/resets.
     local statsY = gtY - gap - STATS_PANEL_H
     local m1 = (st.party or {})[1]
     local partyH = m1 and partyPanelHeight(m1, 1) or 0
     party(st, leftMargin, statsY - gap - partyH, 1)
     statsPanel(st, leftMargin, statsY)
 
-    -- RIGHT: Badges + Repel stay top-anchored, unchanged. Enemy Info +
-    -- Enemy Stats are now their OWN independent bottom-anchored group at
-    -- the very bottom-right (mirroring Game Time's new position on the
-    -- left) -- no longer tied to Badges' position at all.
+    -- Right side: badges/repel/bag at top, enemy info bottom-anchored.
     local rx = (W / s) - COLW - rightMargin
     local badgeX = rx + COLW - BADGE_PANEL_W
     badgePlaceholder(st, badgeX, badgeY)
@@ -941,8 +872,8 @@ return function(mod)
     repelPanel(st, badgeX, widgetY)
     bagPanel(st, badgeX + BADGE_PANEL_W, widgetY)
     if st.battle then
-      local enemyGap = 6   -- even tighter than before -- Enemy Panel to Enemy Stats specifically
-      local enemyBottomMargin = 10   -- its own margin, much smaller than the shared 40 -- can sit almost at the screen edge
+      local enemyGap = 6
+      local enemyBottomMargin = 10
       local enemyStatsY = (H / s) - enemyBottomMargin - STATS_PANEL_H
       enemyStatsPanel(st, rx, enemyStatsY)
       enemyPanel(st, rx, enemyStatsY - enemyGap - ENEMY_PANEL_H)
@@ -951,7 +882,7 @@ return function(mod)
   end
 
   -- ---------------------------------------------------------------------
-  -- Hooks (guarded so hot-reload doesn't double-wrap)
+  -- Hooks into the game (won't double up if the mod reloads).
   -- ---------------------------------------------------------------------
   if not C.wrappedUpdate and C.game and C.game.update then
     C.origUpdate = C.game.update
@@ -973,9 +904,7 @@ return function(mod)
     end
     C.wrappedDraw = true
   end
-  -- Key handling lives in a C.* function that is REASSIGNED every load, so an
-  -- F5 hot-reload picks up changes. The wrapper below is installed once and just
-  -- delegates here (returning true = handled/consumed).
+  -- Key handling. Reassigned every load so F5 reload picks up changes.
   C.onKeyDown = function(_, key)
     local c = _G.__KANTO_INGAME
     if c then

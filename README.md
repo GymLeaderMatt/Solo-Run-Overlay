@@ -11,7 +11,7 @@ This adds an overlay similar to the videos I used but converted to the gen 1 rec
 
 # DISCLAIMER
 
-This mod is dependent on the Badge Boost Glitch mod I made. Link below \
+This mod is dependent on the Badge Boost Glitch mod I made. Link below.
 
 https://github.com/GymLeaderMatt/Badge-Boost-Glitch
 

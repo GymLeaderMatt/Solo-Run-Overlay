@@ -19,7 +19,7 @@ https://github.com/GymLeaderMatt/Badge-Boost-Glitch
 
 -Game time and resets are always shown in the bottom left. \
 -The reset counter is custom, you can increment, decrement, and reset it with keybinds.\
--The keybinds for that are currently [, ], \.\
+-Both brackets and backslash are the keybinds. I'm typing them out because they mess up text.\
 -Pressing 'o' will enable other information.
 
 # Your Pokemon

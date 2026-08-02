@@ -6,7 +6,8 @@ https://discord.com/channels/1019387038820216882/1530767978092560474
 
 This adds an overlay similar to the videos I used but converted to the gen 1 recomp. This is designed for solo run play in mind and designed for my own personal use.
 
-<img width="1917" height="1074" alt="Screenshot 2026-08-01 161234" src="https://github.com/user-attachments/assets/73e799bf-fe42-4d9d-b64e-4fd535faebc8" />
+<img width="1918" height="1077" alt="Screenshot 2026-08-01 211313" src="https://github.com/user-attachments/assets/e943ff55-b40e-49ee-9f01-124ddc7a02a6" />
+
 
 # DISCLAIMER
 

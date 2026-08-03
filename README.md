@@ -1,4 +1,4 @@
-Shoutout to Matthew for the inspiration with Kanto Companion. Link to his version: \
+Shoutout to Matthew for the inspiration with Kanto Companion. Link to his version: 
 
 https://discord.com/channels/1019387038820216882/1530767978092560474
 

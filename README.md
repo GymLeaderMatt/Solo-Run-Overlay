@@ -2,6 +2,10 @@ Shoutout to Matthew for the inspiration with Kanto Companion. Link to his versio
 
 https://discord.com/channels/1019387038820216882/1530767978092560474
 
+# Disclaimer:
+- All of my mods were designed with a PC, 1080p, and the voxel rendering mod in mind. If you are using something different, things might get wonky.
+- Keep in mind I made these mods just for fun. I probably won't be very active fixing bugs unless they affect my gameplay.
+
 # Solo Run Overlay
 
 - This adds an overlay similar to the videos I used but converted to the gen 1 recomp. This is designed for solo run play in mind and designed for my own personal use. 

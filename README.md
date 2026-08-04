@@ -10,8 +10,7 @@ https://discord.com/channels/1019387038820216882/1530767978092560474
 
 - This adds an overlay similar to the videos I used but converted to the gen 1 recomp. This is designed for solo run play in mind and designed for my own personal use. 
 
-<img width="1918" height="1077" alt="Screenshot 2026-08-01 211313" src="https://github.com/user-attachments/assets/e943ff55-b40e-49ee-9f01-124ddc7a02a6" />
-
+<img width="1918" height="1079" alt="overlay2" src="https://github.com/user-attachments/assets/92aa5eae-1a65-4ada-aa17-caf9fd9a7878" />
 
 # DISCLAIMER
 
@@ -21,7 +20,9 @@ https://discord.com/channels/1019387038820216882/1530767978092560474
 - It probably will not be correct if you don't use that.
 
 # Additions
-- Game time and resets are always shown in the bottom left. 
+- Game time and resets are always shown in the bottom left.
+- Badges are shown above. They will 'fill in' as you get them.
+- These 3 things show all the time.
 - The reset counter is custom, you can increment, decrement, and reset it with keybinds.
 - Both brackets and backslash are the keybinds. I'm typing them out because they mess up text.
 - Pressing 'o' will enable other information.
@@ -35,12 +36,10 @@ https://discord.com/channels/1019387038820216882/1530767978092560474
 - Stats also live update for the opponent as well.
 - Indicator above moves to show if you outspeed at a glance.
 
-# Badges/Bags/Repels
-- Badges are displayed on the top right. Outlines persist until you get the badge, then it is in color.
-- A mini badge will appear on your stats to indicate the badge boost for that stat.
+# Bags/Repels
 - Conditionally, two indicators will appear: Repel count and a bag fullness indicator.
-- When you use a repel, a counter will begin under the badge box.
-- When you are at 18 slots and above in your bags, a bag png will appear on the bottom/left of the badge box.
+- When you use a repel, a counter will begin above your Pokemon's information.
+- When you are at 18 slots and above in your bags, a bag png will appear on right part near your Pokemon informaiton (can't miss it).
 - 18 will be green, 19 is yellow, 20 (full) is red.
 - If you are wondering, full bags is important for speedrunning the game.
 

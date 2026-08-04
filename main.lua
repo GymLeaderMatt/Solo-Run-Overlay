@@ -325,7 +325,7 @@ return function(mod)
 
     return { active = true, party = party, trainer = trainer,
       battle = battleBlock, items = {
-        bagFull = C.Bag and C.Bag.slots(save), bagCap = C.Bag and C.Bag.CAPACITY }
+        bagFull = C.Bag and C.Bag.slots(save), bagCap = C.Bag and C.Bag.capacity(C.gameData) }
     }
   end
 
@@ -688,35 +688,34 @@ return function(mod)
     while textW(value, vsz) > w - 20 and vsz > 18 do vsz = vsz - 1 end
     boldTxt(value, x + w/2, y + 30, vsz, COL.text, "center")
   end
-  -- 8 badge slots in a grid, filled in once earned.
-  local BADGE_ROWS, BADGE_COLS = 2, 4
-  local BADGE_GAP = 8
-  local BADGE_PANEL_W = COLW * 0.72
-  local BADGE_CELL = (BADGE_PANEL_W - PAD*2 - BADGE_GAP*(BADGE_COLS-1)) / BADGE_COLS
-  local BADGE_PANEL_H = PAD + BADGE_CELL*BADGE_ROWS + BADGE_GAP*(BADGE_ROWS-1) + PAD
-  local BAG_ICON_SIZE = 140
-  local BAG_BOX_SIZE = BAG_ICON_SIZE + PAD * 2
+  -- 8 badge slots in a single thin row, evenly spaced, filled in once earned.
+  local BADGE_ICON = 28
+  local BADGE_ROW_PAD_V = 14
+  local BADGE_ROW_H = BADGE_ROW_PAD_V*2 + BADGE_ICON
   local REPEL_BOX_H = 62
-  local function badgePlaceholder(st, x, y)
-    local w = BADGE_PANEL_W
-    panel(x, y, w, BADGE_PANEL_H, false)
+  local function badgeRow(st, x, y)
+    local w = COLW
+    panel(x, y, w, BADGE_ROW_H, false)
     local badges = (st.trainer and st.trainer.badges) or {}
-    for i = 0, BADGE_ROWS*BADGE_COLS - 1 do
-      local col = i % BADGE_COLS; local row = math.floor(i / BADGE_COLS)
-      local bx = x + PAD + col*(BADGE_CELL+BADGE_GAP); local by = y + PAD + row*(BADGE_CELL+BADGE_GAP)
-      love.graphics.setLineWidth(2 * s)
-      setc(COL.border, 0.85); rrect("line", bx, by, BADGE_CELL, BADGE_CELL, 8)
+    local innerW = w - PAD*2
+    local gapX = (innerW - 8*BADGE_ICON) / 7
+    local by = y + BADGE_ROW_PAD_V
+    for i = 0, 7 do
+      local bx = x + PAD + i*(BADGE_ICON + gapX)
       local b = badges[i+1]
+      local owned = b and b.owned
+      love.graphics.setLineWidth(math.max(1, s))
+      setc(COL.border, 0.5); rrect("line", bx - 2, by - 2, BADGE_ICON + 4, BADGE_ICON + 4, 5)
       local img = uiImage(mod.assets:path(
-        "assets/badges/badge" .. (i+1) .. "_" .. ((b and b.owned) and "true" or "false") .. ".png"))
+        "assets/badges/badge" .. (i+1) .. "_" .. (owned and "true" or "false") .. ".png"))
       if img then
         local iw, ih = img:getDimensions()
-        local sc = (BADGE_CELL / math.max(iw, ih)) * s
+        local sc = (BADGE_ICON / math.max(iw, ih)) * s
         setc(COL.text, 1)
         love.graphics.draw(img, math.floor(bx*s), math.floor(by*s), 0, sc, sc)
       end
     end
-    return BADGE_PANEL_H
+    return BADGE_ROW_H
   end
 
   -- Bottom-right layout, built from the bottom up so nothing shifts around.
@@ -730,8 +729,11 @@ return function(mod)
     return GT_BOX_H
   end
 
-  -- Repel and bag warnings.
-  local REPEL_BOX_W = BADGE_PANEL_W * 0.42
+  -- Repel and bag warnings -- same box size for both, side by side.
+  local REPEL_BOX_W = COLW * 0.3
+  local BAG_BOX_H = 53 -- slightly smaller than before; independent of repel now that it's moved
+  local BAG_BOX_W = BAG_BOX_H -- still square
+  local BAG_ICON_SIZE = 44 -- same ~8% margin ratio as the last size that looked right
   local function repelPanel(st, x, y)
     local t = st.trainer
     if not (t and (t.repelSteps or 0) > 0) then return 0 end
@@ -745,23 +747,45 @@ return function(mod)
   end
 
   local function bagPanel(st, rightEdge, y)
+    local badges = (st.trainer and st.trainer.badges) or {}
+    local earthOwned = badges[8] and badges[8].owned
     local it = st.items or {}
-    if not (it.bagFull and it.bagCap) then return 0 end
+    local function log(tag, fmt, ...)
+      if C.lastBagLog ~= tag then
+        C.lastBagLog = tag
+        mod.log:info("bagPanel: " .. fmt, ...)
+      end
+    end
+    if earthOwned then
+      log("earth", "hidden -- Earth Badge is owned")
+      return 0
+    end
+    if not (it.bagFull and it.bagCap) then
+      log("nodata", "hidden -- no bag data (bagFull=%s bagCap=%s, C.Bag=%s)",
+        tostring(it.bagFull), tostring(it.bagCap), tostring(C.Bag ~= nil))
+      return 0
+    end
     local remaining = it.bagCap - it.bagFull
     local iconPath = remaining <= 0 and "assets/ui/bag_red.png"
       or remaining == 1 and "assets/ui/bag_yellow.png"
       or remaining == 2 and "assets/ui/bag_green.png"
-    if not iconPath then return 0 end
-    local x = rightEdge - BAG_BOX_SIZE
-    panel(x, y, BAG_BOX_SIZE, BAG_BOX_SIZE, false)
+    if not iconPath then
+      log("toolow", "hidden -- bagFull=%d bagCap=%d (remaining=%d, not 0/1/2)", it.bagFull, it.bagCap, remaining)
+      return 0
+    end
+    log(iconPath, "showing %s -- bagFull=%d bagCap=%d", iconPath, it.bagFull, it.bagCap)
+    local x = rightEdge - BAG_BOX_W
+    panel(x, y, BAG_BOX_W, BAG_BOX_H, false)
     local img = uiImage(mod.assets:path(iconPath))
     if img then
       local iw, ih = img:getDimensions()
       local sc = (BAG_ICON_SIZE / math.max(iw, ih)) * s
       setc(COL.text, 1)
-      love.graphics.draw(img, math.floor((x + PAD)*s), math.floor((y + PAD)*s), 0, sc, sc)
+      local offX = (BAG_BOX_W - BAG_ICON_SIZE) / 2
+      local offY = (BAG_BOX_H - BAG_ICON_SIZE) / 2
+      love.graphics.draw(img, math.floor((x + offX)*s), math.floor((y + offY)*s), 0, sc, sc)
     end
-    return BAG_BOX_SIZE
+    return BAG_BOX_H
   end
 
   -- Enemy panel: mirrors the player's panel, sprite on the right instead.
@@ -847,31 +871,36 @@ return function(mod)
     local bottomMargin = 40
     local rightMargin = 8
     local gap = 16
-    local badgeY = 24
 
-    -- Game time and resets always show; everything else toggles with O/F8.
+    -- Game time, resets, and the badge row always show; everything else
+    -- toggles with O/F8.
     local gtY = (H / s) - bottomMargin - GT_BOX_H
     gameTimePanel(st, leftMargin, gtY)
+    local badgeRowY = gtY - gap - BADGE_ROW_H
+    badgeRow(st, leftMargin, badgeRowY)
     if not C.visible or not (st.party and #st.party > 0) then
       love.graphics.pop()
       return
     end
 
-    -- Left side: my Pokemon, then my stats, then game time/resets.
-    local statsY = gtY - gap - STATS_PANEL_H
+    -- Left side, stacked bottom-up: game time/resets, badge row, stats,
+    -- party info. Repel sits in its own row above the party box; bag
+    -- now sits to the right of the party box, aligned to its bottom edge.
+    local statsY = badgeRowY - gap - STATS_PANEL_H
     local m1 = (st.party or {})[1]
     local partyH = m1 and partyPanelHeight(m1, 1) or 0
-    party(st, leftMargin, statsY - gap - partyH, 1)
+    local partyY = statsY - gap - partyH
+    party(st, leftMargin, partyY, 1)
     statsPanel(st, leftMargin, statsY)
 
-    -- Right side: badges/repel/bag at top, enemy info bottom-anchored.
-    local rx = (W / s) - COLW - rightMargin
-    local badgeX = rx + COLW - BADGE_PANEL_W
-    badgePlaceholder(st, badgeX, badgeY)
-    local widgetY = badgeY + BADGE_PANEL_H + gap
-    repelPanel(st, badgeX, widgetY)
-    bagPanel(st, badgeX + BADGE_PANEL_W, widgetY)
+    local rowBottomY = partyY - gap
+    repelPanel(st, leftMargin, rowBottomY - REPEL_BOX_H)
+    bagPanel(st, leftMargin + COLW + gap - 12 + BAG_BOX_W, partyY + partyH - BAG_BOX_H)
+
+    -- Right side: nothing out of battle; enemy info bottom-anchored
+    -- during battle, same footprint as always.
     if st.battle then
+      local rx = (W / s) - COLW - rightMargin
       local enemyGap = 6
       local enemyBottomMargin = 10
       local enemyStatsY = (H / s) - enemyBottomMargin - STATS_PANEL_H
